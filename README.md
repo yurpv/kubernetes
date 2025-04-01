@@ -1,1 +1,1 @@
-# Ansible playbook Kubernetes
+# Ansible playbook Kubernetes stend on Vagrant
