@@ -1,0 +1,16 @@
+#SPDX-License-Identifier: MIT-0
+---
+# tasks file for ./roles/kub-master1
+- name: Prepare OS for kub-master1
+  include_tasks:
+    file: prepare_os.yml
+    apply:
+      tags: prepare
+  tags: prepare
+
+- name: Prepare Kubernetes master1
+  include_tasks:
+    file: prepare_master.yml
+    apply:
+      tags: master1
+  tags: master1

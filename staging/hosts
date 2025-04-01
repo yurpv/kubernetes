@@ -1,0 +1,4 @@
+[Hosts]
+master1 ansible_host=192.168.255.80 ansible_port=22 ansible_private_key_file=.vagrant/machines/master1/vmware_desktop/private_key
+worker1 ansible_host=192.168.255.81 ansible_port=22 ansible_private_key_file=.vagrant/machines/worker1/vmware_desktop/private_key
+worker2 ansible_host=192.168.255.82 ansible_port=22 ansible_private_key_file=.vagrant/machines/worker2/vmware_desktop/private_key

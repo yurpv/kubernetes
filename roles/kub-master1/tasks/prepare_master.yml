@@ -1,0 +1,223 @@
+- name: Set hostname
+  hostname:
+    name: "kub-master1.test.local"
+
+- name: Stop and disable the ufw service.
+  service:
+    name: ufw
+    state: stopped
+    enabled: no
+
+- name: Copy hosts file from template
+  copy:
+    src: 'files/hosts'
+    dest: '/etc/hosts'
+    owner: root
+    group: root
+    mode: '0644'
+
+#- name: Add a line to a hosts file
+#  lineinfile:
+#    path: /etc/hosts
+#    state: present
+#    line: "{{ item }}"
+#  with_items:
+#    - 192.168.255.80 kub-master1.test.local kub-master1
+#    - 192.168.255.81 kub-worker1.test.local kub-worker1
+#    - 192.168.255.82 kub-worker2.test.local kub-worker2
+
+- name: Disable SWAP 1/2 (swapoff)
+  shell: swapoff -a
+
+- name: Disable SWAP 2/2 (fstab)
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
+    replace: '# \1'
+
+- name: apt and install packages
+  apt:
+    name:
+      - curl
+      - apt-transport-https
+      - ca-certificates
+      - gnupg
+
+    state: latest
+    update_cache: true
+
+- name: Create File for modules load
+  file:
+    path: /etc/modules-load.d/k8s.conf
+    state: touch
+    owner: root
+    group: root
+    mode: 0644
+
+- name: Add modules k8s
+  lineinfile:
+    path: /etc/modules-load.d/k8s.conf
+    line: "{{ item }}"
+  loop:
+    - br_netfilter
+    - overlay
+
+- name: Add br_netfilter and overlay modules
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - br_netfilter
+    - overlay
+
+- name: Set sysctl bridge-nf-call options
+  sysctl:
+    name: "{{ item }}"
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_file: /etc/sysctl.d/k8s.conf
+  loop:
+    - net.bridge.bridge-nf-call-ip6tables
+    - net.bridge.bridge-nf-call-iptables
+    - net.ipv4.ip_forward
+
+
+
+- name: Add Docker GPG apt Key and Set the stable docker repository
+  block:
+    - name: somerepo |apt key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+
+    - name: somerepo | apt source
+      apt_repository:
+        repo: "deb [arch=arm64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu   jammy stable"
+        state: present
+        filename: docker
+
+    - name: Changing permission
+      file: dest=/etc/apt/keyrings/docker.asc mode=a+r
+
+- name: Update apt and install docker
+  apt:
+    name:
+#      - docker-ce
+#      - docker-ce-cli
+      - containerd.io
+#      - docker-buildx-plugin
+#      - docker-compose-plugin
+    state: latest
+    update_cache: true
+
+#- name: Docker systemctl enable and start
+#  systemd:
+#    name: docker
+#    enabled: yes
+
+- name: Configure containerd.
+  file:
+    path: /etc/containerd
+    state: directory
+
+- name: Copy hosts file from template
+  copy:
+    src: 'files/config.toml'
+    dest: '/etc/containerd/config.toml'
+    owner: root
+    group: root
+    mode: '0644'
+
+#- name: Configure containerd.
+#  shell: /usr/bin/containerd config default > /etc/containerd/config.toml
+
+- name: Enable containerd service, and start it.
+  systemd:
+       name: containerd
+       state: restarted
+       enabled: yes
+       daemon-reload: yes
+
+- name: Add Kubernetes GPG apt Key and Set the stable docker repository
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.32/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.32/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
+
+- name: update
+  apt:
+    update_cache: yes
+
+- name: Install packages needed to use the Kubernetes apt repository
+  apt:
+    update_cache: true
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+  become: true
+
+- name: Hold kubernetes to update
+  dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+
+# Master Settings block
+- name: kubeadm init pod-network-cidr
+  shell: sudo kubeadm init \ --apiserver-advertise-address=192.168.255.80 \ --pod-network-cidr 10.244.0.0/16
+  ignore_errors: yes
+
+- name: Set KUBECONFIG system environment permanently
+  file:
+    path: $HOME/.kube
+    state: directory
+
+- name: Copy admin.conf file in $HOME and set permission
+  shell: |
+    sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+    sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+- name: Install CNI (Container Networking Interface)
+  shell: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+
+#- name: Get join command
+#  shell: kubeadm token create --print-join-command
+#  register: join_command
+
+### Instal Kubernetes Dashboard
+
+- name: Create directories for Helm
+  file:
+    path: '/tmp/helm'
+    state: directory
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Execute Helm.sh
+  shell: |
+    cd /tmp/helm
+    curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    chmod 700 /tmp/helm/get_helm.sh
+    /tmp/helm/get_helm.sh
+    helm repo add kubernetes-dashboard https://kubernetes.github.io/dashboard/
+    helm upgrade --install kubernetes-dashboard kubernetes-dashboard/kubernetes-dashboard --create-namespace --namespace kubernetes-dashboard
+
+- name: Copy Kubernetes manifest file
+  copy:
+    src: 'files/k8s-dashboard-account.yaml'
+    dest: '/tmp/helm/k8s-dashboard-account.yaml'
+    owner: root
+    group: root
+    mode: '0644'
+
+Access Kubernetes Dashboard
+- name: Access Kubernetes Dashboard
+  shell: |
+    kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard-kong-proxy 8443:443 --address 0.0.0.0 &
+    Forwarding from 0.0.0.0:10443 -> 8443

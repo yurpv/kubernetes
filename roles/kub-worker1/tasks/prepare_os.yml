@@ -1,0 +1,37 @@
+
+- name: set permission to folder
+  file:
+    dest: /etc/netplan
+    recurse: yes
+    mode: '0600'
+
+- name: Apply netplan
+  command: sudo netplan apply
+  async: 45
+  poll: 0
+
+- name: update
+  apt:
+    update_cache: yes
+
+- name: Install required packages
+  apt:
+    name:
+      - openvswitch-switch-dpdk
+      - python3-psycopg2
+      - acl
+    state: latest
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+    force_apt_get: yes
+
+- name: Set timezone to Europe/Moscow
+  timezone:
+    name: Europe/Moscow
+
+- name: Apply netplan
+  command: sudo netplan apply
+  async: 45
+  poll: 0

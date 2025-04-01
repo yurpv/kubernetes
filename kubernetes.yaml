@@ -1,0 +1,18 @@
+---
+- name: Configure kub-master1 server
+  hosts: master1
+  become: yes
+  roles:
+    - role: kub-master1
+
+- name: Configure kub-worker2 server
+  hosts: worker1
+  become: yes
+  roles:
+    - role: kub-worker1
+
+- name: Configure kub-worker2 server
+  hosts: worker2
+  become: yes
+  roles:
+    - role: kub-worker2
